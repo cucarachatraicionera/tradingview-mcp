@@ -356,6 +356,153 @@ Claude Code  ←→  MCP Server (stdio)  ←→  CDP (port 9222)  ←→  Tradin
 - **Streaming**: Poll-and-diff loop with deduplication, JSONL output to stdout
 - **No dependencies** beyond `@modelcontextprotocol/sdk` and `chrome-remote-interface`
 
+---
+
+## Trading Bot (`bot/`)
+
+Multi-timeframe automated signal scanner that reads live indicator data from TradingView via CDP, detects trade signals, stores them in SQLite, and sends Telegram alerts.
+
+### Architecture
+
+```
+TradingView Desktop (CDP :9222)
+    │
+    ├─ signals-bot.js  ←  polls 6 combos, reads indicator, sends Telegram
+    ├─ load-indicator.js  ←  loads custom Pine scripts onto chart via Monaco
+    ├─ db.js  ←  SQLite storage with combo-level tracking
+    ├─ news.js  ←  fetches related news for signal context
+    └─ dashboard/  ←  Express web UI (port 3456)
+        └─ server.js
+        └─ public/index.html
+```
+
+### How It Works
+
+1. **Bot starts** → connects to TradingView via CDP, ensures the Pine indicator is loaded
+2. **Poll loop** (every 30s by default) → iterates 6 combos:
+   - Switches chart to combo's symbol + timeframe via CDP
+   - Reads 22 indicator values via `dataSources()[].dataWindowView().items()`
+   - Detects signal transitions (0 → 1 = LONG, 0 → -1 = SHORT)
+   - Fetches related news for context
+   - Sends Telegram alert with entry price, SL/TP, confidence, RSI, regime
+3. **Pending signal monitoring** → checks open signals for TP/SL hits on each poll
+4. **Dashboard** → real-time signal history, combo cards, P&L by combo, equity curve
+
+### The 6 Combos
+
+| # | Symbol | Timeframe | CDP Resolution |
+|---|--------|-----------|----------------|
+| 1 | XAUUSD | 30 min | `30` |
+| 2 | XAUUSD | 1 hour | `60` |
+| 3 | XAUUSD | 4 hours | `240` |
+| 4 | SOLUSD | 30 min | `30` |
+| 5 | SOLUSD | 1 hour | `60` |
+| 6 | SOLUSD | 4 hours | `240` |
+
+### Setup
+
+#### 1. Install dependencies
+
+```bash
+npm install
+# Requires: better-sqlite3, express, chrome-remote-interface, rss-parser
+```
+
+#### 2. Configure Telegram
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env`:
+- `TELEGRAM_TOKEN` — get from [@BotFather](https://t.me/BotFather)
+- `TELEGRAM_CHAT` — message your bot, then visit `https://api.telegram.org/bot<TOKEN>/getUpdates` to find your chat ID
+- `CDP_PORT` — default `9222`
+- `POLL_INTERVAL` — seconds between polls (default: `30`)
+
+#### 3. Ensure TradingView is running with CDP
+
+```bash
+/path/to/TradingView --remote-debugging-port=9222
+```
+
+#### 4. Start the bot
+
+**Via PM2 (recommended):**
+```bash
+pm2 start bot/signals-bot.js --name signals-bot
+pm2 start bot/dashboard/server.js --name dashboard
+pm2 save
+```
+
+**Via start_all (fresh start with DB cleanup):**
+```bash
+node bot/start_all.mjs
+```
+
+**Manually:**
+```bash
+node bot/signals-bot.js
+node bot/dashboard/server.js
+```
+
+### Indicator Loading
+
+The bot uses a custom Pine Script indicator (`strategies/neural_matrix_pro.pine`). Loading it onto the chart programmatically poses a challenge because `chart.createStudy()` only works for built-in indicators.
+
+**Solution (`bot/load-indicator.js`):**
+1. Opens the Pine Editor via CDP (`Runtime.evaluate`)
+2. Injects source code into the Monaco editor via React fiber tree walk
+3. Triggers the `vs.editor.ICodeEditor:N:add.to.chart` Monaco action — this directly invokes TradingView's internal "Add to chart" command, bypassing DOM button clicks and keyboard events
+4. Handles the save-name dialog if the script is new
+5. Verifies the indicator is present via `dataSources()` and `getAllStudies()`
+
+This runs automatically at bot startup and as a fallback if the indicator is missing during a poll cycle.
+
+### Neural Matrix Pro Indicator
+
+`strategies/neural_matrix_pro.pine` — Pine Script v6 multi-factor strategy:
+
+- 6 factors weighted by market regime: trend structure, volatility, SuperTrend, momentum + divergence, volume profile, structural levels
+- Adapts to 30m/1h/4h timeframes automatically
+- Outputs 22 values read by the bot: Signal, RSI, ATR, ATR%, Regime, Confidence, VolRatio, ADX, Choppiness, EMA bands, SuperTrend, VWAP, LONG/SHORT counters, SL/TP levels
+- Signal: `1` = LONG, `-1` = SHORT, `0` = NEUTRO
+
+### Dashboard
+
+`http://localhost:3456` — real-time web UI:
+
+- **Combo cards** (6): symbol + timeframe, last signal, P&L, status
+- **Signals table**: all signals with symbol, timeframe, type, entry, SL/TP, R/R, confidence, news
+- **P&L by combo chart**: grouped bar chart showing per-combo performance
+- **Equity curve**: cumulative P&L over time
+- **Stats**: win rate, total signals, open/pending counts
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `bot/signals-bot.js` | Main bot loop: poll, detect, alert |
+| `bot/load-indicator.js` | Custom Pine indicator loader via Monaco action |
+| `bot/db.js` | SQLite schema + CRUD, `byCombo` stats |
+| `bot/news.js` | RSS news fetcher for signal context |
+| `bot/dashboard/server.js` | Express API + static server (port 3456) |
+| `bot/dashboard/public/index.html` | Dashboard Svelte-like UI (vanilla JS) |
+| `bot/seed-backtest.js` | Backtest signal seeder (mirrors 6 combos) |
+| `bot/start_all.mjs` | Clean start: kill old processes, wipe DB, launch everything |
+| `strategies/neural_matrix_pro.pine` | Pine Script v6 multi-factor indicator |
+| `.env` | Telegram token, chat ID, CDP port, poll interval |
+
+### Backtest Seeding
+
+```bash
+node bot/seed-backtest.js
+```
+
+Generates synthetic signals for all 6 combos to test the dashboard and Telegram flow without waiting for live signals. Each combo gets configurable signal density, P&L distribution, and realistic SL/TP levels.
+
+---
+
 ## Attributions
 
 This project is not affiliated with, endorsed by, or associated with:

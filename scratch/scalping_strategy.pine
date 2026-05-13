@@ -1,0 +1,40 @@
+//@version=6
+strategy('BTC Scalping 5m (EMA + RSI)', overlay=true, initial_capital=1000, default_qty_type=strategy.percent_of_equity, default_qty_value=100)
+
+// --- Inputs ---
+emaFastLen = input.int(9, 'EMA Rápida', minval=1)
+emaSlowLen = input.int(21, 'EMA Lenta', minval=1)
+emaTrendLen = input.int(200, 'EMA Tendencia (200)', minval=1)
+rsiLen = input.int(7, 'RSI Periodos', minval=1)
+atrLen = input.int(14, 'ATR Periodos (Gestión)', minval=1)
+tpMultiplier = input.float(1.5, 'Multiplicador Take Profit', minval=0.1)
+slMultiplier = input.float(1.0, 'Multiplicador Stop Loss', minval=0.1)
+
+// --- Cálculos ---
+emaFast = ta.ema(close, emaFastLen)
+emaSlow = ta.ema(close, emaSlowLen)
+emaTrend = ta.ema(close, emaTrendLen)
+rsi = ta.rsi(close, rsiLen)
+atr = ta.atr(atrLen)
+
+// --- Condiciones de Entrada ---
+longCondition = ta.crossover(emaFast, emaSlow) and close > emaTrend and rsi > 50
+shortCondition = ta.crossunder(emaFast, emaSlow) and close < emaTrend and rsi < 50
+
+// --- Visualización ---
+plot(emaFast, color=color.blue, title='EMA 9')
+plot(emaSlow, color=color.orange, title='EMA 21')
+plot(emaTrend, color=color.white, linewidth=2, title='EMA 200')
+
+// --- Ejecución ---
+if longCondition
+    strategy.entry('Long', strategy.long)
+    strategy.exit('Exit Long', 'Long', stop=close - (atr * slMultiplier), limit=close + (atr * tpMultiplier), comment_loss='SL', comment_profit='TP')
+
+if shortCondition
+    strategy.entry('Short', strategy.short)
+    strategy.exit('Exit Short', 'Short', stop=close + (atr * slMultiplier), limit=close - (atr * tpMultiplier), comment_loss='SL', comment_profit='TP')
+
+// Alertas visuales
+plotshape(longCondition, style=shape.triangleup, location=location.belowbar, color=color.green, size=size.small, title='Long Signal')
+plotshape(shortCondition, style=shape.triangledown, location=location.abovebar, color=color.red, size=size.small, title='Short Signal')

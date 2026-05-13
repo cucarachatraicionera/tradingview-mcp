@@ -1,0 +1,79 @@
+//@version=5
+indicator(title="EMA Pullback Strategy [Bot]", overlay=true, format=format.price)
+
+// ═══════════════════════════════════════════════════════════════
+//  Estrategia: Pullback a EMA + RSI + ADX
+//  Timeframe recomendado: 4h (240) o Daily
+//  Assets: Crypto (BTC, ETH, SOL, etc.)
+//
+//  Concepto (vía r/algotrading y r/swingtrading):
+//  1. Identificar tendencia con EMA 50 y EMA 200
+//  2. Esperar pullback a la EMA rápida en dirección de la tendencia
+//  3. RSI confirma que no está sobrecomprado (long) / sobrevendido (short)
+//  4. ADX > 20 asegura que hay tendencia (no rango lateral)
+// ═══════════════════════════════════════════════════════════════
+
+// ── Inputs ──
+emaFastLen  = input.int(50,  "EMA Fast")
+emaSlowLen  = input.int(200, "EMA Slow")
+rsiLen      = input.int(14,  "RSI Length")
+adxLen      = input.int(14,  "ADX Length")
+adxThresh   = input.int(20,  "ADX Threshold", tooltip="ADX > este valor = mercado con tendencia")
+rsiOverbought = input.int(60, "RSI Overbought")
+rsiOversold   = input.int(40, "RSI Oversold")
+usePullbackZone = input.bool(true, "Use Pullback Zone %", tooltip="Solo entrar si el precio está X% por debajo/encima de la EMA rápida")
+pullbackPct  = input.float(0.5, "Pullback Zone (%)", tooltip="Distancia mínima del precio a la EMA rápida (%)")
+atrTpMulti  = input.float(2.0, "ATR Take Profit Multiplier")
+atrSlMulti  = input.float(1.5, "ATR Stop Loss Multiplier")
+
+// ── Cálculos ──
+emaFast = ta.ema(close, emaFastLen)
+emaSlow = ta.ema(close, emaSlowLen)
+rsi     = ta.rsi(close, rsiLen)
+adxVal  = ta.adx(high, low, close, adxLen)
+atrVal  = ta.atr(atrLen)
+
+// ── Dirección de la tendencia ──
+uptrend   = close > emaSlow and emaFast > emaSlow
+downtrend = close < emaSlow and emaFast < emaSlow
+
+// ── Condiciones de entrada ──
+pullbackZone = usePullbackZone ? pullbackPct / 100 : 0
+
+longCondition = uptrend
+  and (close < emaFast * (1 - pullbackZone))
+  and rsi < rsiOversold  // no sobrecomprado
+  and adxVal > adxThresh // tendencia fuerte
+  and rsi > 20           // evitar oversold extremo
+
+shortCondition = downtrend
+  and (close > emaFast * (1 + pullbackZone))
+  and rsi > rsiOverbought // no sobrevendido
+  and adxVal > adxThresh
+  and rsi < 80
+
+// ── Señal numérica (la lee el bot) ──
+signal = longCondition ? 1 : shortCondition ? -1 : 0
+
+// ── Visual ──
+plot(emaFast, "EMA Fast", color.blue, 1)
+plot(emaSlow, "EMA Slow", color.purple, 1)
+
+plotshape(longCondition, style=shape.triangleup, location=location.belowbar,
+  color=color.new(color.green, 0), size=size.small, text="BUY")
+plotshape(shortCondition, style=shape.triangledown, location=location.abovebar,
+  color=color.new(color.red, 0), size=size.small, text="SELL")
+
+// Plot oculto en el gráfico pero visible en Data Window para el bot
+plot(signal, "Signal", display=display.data_window)
+
+// ── Alertas nativas de TradingView ──
+alertcondition(longCondition, "BUY Signal",
+  "BUY {{ticker}}\nPrice: {{close}}\nEMA50: {{plot(\"EMA Fast\")}}\nRSI: {{plot(\"RSI\")}}\nADX: {{plot(\"ADX\")}}")
+alertcondition(shortCondition, "SELL Signal",
+  "SELL {{ticker}}\nPrice: {{close}}\nEMA50: {{plot(\"EMA Fast\")}}\nRSI: {{plot(\"RSI\")}}\nADX: {{plot(\"ADX\")}}")
+
+// ── Información en el Data Window ──
+plot(rsi, "RSI", display=display.data_window)
+plot(adxVal, "ADX", display=display.data_window)
+plot(atrVal, "ATR", display=display.data_window)

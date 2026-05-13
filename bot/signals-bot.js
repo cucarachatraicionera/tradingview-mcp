@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import * as db from './db.js';
 import { getNewsForSignal } from './news.js';
 import { ensureIndicatorOnChart } from './load-indicator.js';
+import * as exchange from './exchange.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -238,11 +239,15 @@ function timestamp() {
   return new Date().toLocaleTimeString('es-MX', { hour12: false });
 }
 
-async function checkPendingSignals(priceCache) {
+async function checkPendingSignals(priceCache, useExchangePrice = true) {
   const pending = db.getPendingSignals();
   for (const sig of pending) {
     try {
-      const price = priceCache[sig.symbol] || await getCurrentPrice(sig.symbol);
+      let price = priceCache[sig.symbol];
+      if (!price && useExchangePrice && process.env.BINANCE_API_KEY) {
+        price = await exchange.getCurrentPrice(sig.symbol);
+      }
+      if (!price) price = priceCache[sig.symbol] || await getCurrentPrice(sig.symbol);
       if (!price) continue;
       priceCache[sig.symbol] = price;
 
@@ -329,6 +334,25 @@ async function checkCombo(combo) {
         newsSentiment: newsItem?.sentiment || null,
       });
 
+      if (CONFIG.dryRun) {
+        console.log(`  [DRY RUN] Binance trade would execute: ${signalType} ${combo.symbol} at $${data.price}`);
+      } else if (process.env.BINANCE_API_KEY) {
+        try {
+          const trade = signalType === 'LONG'
+            ? await exchange.openLong(combo.symbol, data.price, sl, tp)
+            : await exchange.openShort(combo.symbol, data.price, sl, tp);
+          if (trade.success) {
+            console.log(`  ✅ Binance ${signalType} abierto: size=${trade.size} entry=$${data.price}`);
+            if (sl) await exchange.setStopLoss(combo.symbol, signalType, trade.size, sl);
+            if (tp) await exchange.setTakeProfit(combo.symbol, signalType, trade.size, tp);
+          } else {
+            console.error(`  ❌ Binance error: ${trade.error}`);
+          }
+        } catch (e) {
+          console.error(`  ❌ Binance exception: ${e.message}`);
+        }
+      }
+
       lastSignals[key] = signal;
     } else if (signal === 0 && prev !== 0) {
       lastSignals[key] = 0;
@@ -361,6 +385,11 @@ async function main() {
   console.log(`🧠 Estrategia: Neural Matrix Pro`);
   console.log(`🪙 Combos:    ${COMBOS.map(c => `${c.symbol} ${c.tf}`).join(', ')}`);
   console.log(`📰 Noticias:   ${CONFIG.telegram.token ? '✅' : '❌'}`);
+  if (process.env.BINANCE_API_KEY) {
+    console.log(`🪙 Binance:    ✅ (testnet: ${process.env.BINANCE_TESTNET === 'true' ? 'sí' : 'no'}, apalancamiento: ${process.env.BINANCE_LEVERAGE || 5}x)`);
+  } else {
+    console.log(`🪙 Binance:    ❌ (sin API keys — solo monitoreo)`);
+  }
   console.log('');
 
   try {

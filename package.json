@@ -27,6 +27,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
     "better-sqlite3": "^12.10.0",
+    "ccxt": "^4.5.53",
     "chrome-remote-interface": "^0.33.2",
     "express": "^5.2.1",
     "rss-parser": "^3.13.0"

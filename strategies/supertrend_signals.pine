@@ -1,0 +1,146 @@
+//@version=6
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  SuperTrend + EMA200 + RSI + Volume — Señales Bot               ║
+// ║  Basado en consenso de r/algotrading y r/Daytrading 2024-2025   ║
+// ║                                                                  ║
+// ║  LÓGICA:                                                         ║
+// ║  1. EMA 200 → filtra la tendencia macro (solo longs arriba,      ║
+// ║               solo shorts abajo)                                 ║
+// ║  2. SuperTrend (10, 3.0) → señal de entrada principal            ║
+// ║  3. RSI (14) → confirmación de momentum (evitar extremos)        ║
+// ║  4. Volume > EMA(Volume, 20) → confirma convicción del movimiento║
+// ║                                                                  ║
+// ║  TIMEFRAME RECOMENDADO: 1h o 4h crypto                          ║
+// ║  ASSETS: BTC, ETH, SOL (mayor liquidez = menos falsas señales)  ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+indicator('SuperTrend Signals Bot [Reddit Strategy]', overlay=true, max_labels_count=500)
+
+// ── Inputs ──────────────────────────────────────────────────────────
+grp1 = 'SuperTrend'
+stAtrLen   = input.int(10,  'ATR Length',    group=grp1)
+stFactor   = input.float(3.0, 'Factor',      group=grp1, step=0.1)
+
+grp2 = 'Filtros'
+ema200Len  = input.int(200, 'EMA Tendencia', group=grp2)
+rsiLen     = input.int(14,  'RSI Length',    group=grp2)
+rsiOB      = input.int(70,  'RSI Sobrecompra (evitar longs)', group=grp2)
+rsiOS      = input.int(30,  'RSI Sobreventa (evitar shorts)', group=grp2)
+volEmaLen  = input.int(20,  'Volume EMA Length', group=grp2)
+
+grp3 = 'Gestión de Riesgo'
+atrRR      = input.int(14,   'ATR para SL/TP', group=grp3)
+slMulti    = input.float(1.5, 'SL Multiplicador ATR', group=grp3, step=0.1)
+tpMulti    = input.float(3.0, 'TP Multiplicador ATR (RR 1:2)',  group=grp3, step=0.1)
+
+grp4 = 'Bot'
+showAlerts = input.bool(true, 'Habilitar Alertas Bot', group=grp4)
+showLabels = input.bool(true, 'Mostrar etiquetas SL/TP', group=grp4)
+
+// ── Cálculos ─────────────────────────────────────────────────────────
+// SuperTrend
+[stLine, stDir] = ta.supertrend(stFactor, stAtrLen)
+
+// EMA 200 (filtro de tendencia macro)
+ema200 = ta.ema(close, ema200Len)
+
+// RSI
+rsi = ta.rsi(close, rsiLen)
+
+// Volume confirmation
+volEma    = ta.ema(volume, volEmaLen)
+volAbove  = volume > volEma
+
+// ATR para SL/TP dinámicos
+atrVal = ta.atr(atrRR)
+
+// ── Condiciones de Entrada ───────────────────────────────────────────
+// SuperTrend cambia de bearish a bullish
+stBullCross = ta.crossunder(stDir, 0)   // -1 = bullish en v6
+stBearCross = ta.crossover(stDir, 0)    // +1 = bearish en v6
+
+// ¿En qué lado de la EMA 200 estamos?
+aboveEma200 = close > ema200
+belowEma200 = close < ema200
+
+// Señal LONG: SuperTrend cruza a bullish + precio sobre EMA200 + RSI no sobrecomprado + volumen alto
+longSignal = stBullCross
+  and aboveEma200
+  and rsi < rsiOB
+  and rsi > 40       // Evitar entrar en divergencias extremas
+  and volAbove
+
+// Señal SHORT: SuperTrend cruza a bearish + precio bajo EMA200 + RSI no sobrevendido + volumen alto
+shortSignal = stBearCross
+  and belowEma200
+  and rsi > rsiOS
+  and rsi < 60
+  and volAbove
+
+// ── SL / TP dinámicos ────────────────────────────────────────────────
+longSL  = close - (atrVal * slMulti)
+longTP  = close + (atrVal * tpMulti)
+shortSL = close + (atrVal * slMulti)
+shortTP = close - (atrVal * tpMulti)
+
+// ── Visual ───────────────────────────────────────────────────────────
+// SuperTrend
+plot(stLine, 'SuperTrend', stDir < 0 ? color.new(color.green, 20) : color.new(color.red, 20), linewidth=2)
+
+// EMA 200
+plot(ema200, 'EMA 200', color.new(color.white, 30), linewidth=2)
+
+// Señales en el gráfico
+plotshape(longSignal, style=shape.triangleup, location=location.belowbar,
+  color=color.new(color.lime, 0), size=size.normal, title='LONG Signal', text='LONG')
+plotshape(shortSignal, style=shape.triangledown, location=location.abovebar,
+  color=color.new(color.red, 0), size=size.normal, title='SHORT Signal', text='SHORT')
+
+// Etiquetas con SL/TP
+if showLabels and longSignal
+    label.new(bar_index, low,
+      '🟢 LONG\nEntry: ' + str.tostring(close, '#.##') +
+      '\nSL: '    + str.tostring(longSL,  '#.##') +
+      '\nTP: '    + str.tostring(longTP,  '#.##') +
+      '\nRSI: '   + str.tostring(rsi, '#.#') +
+      '\nVol: x'  + str.tostring(volume/volEma, '#.##'),
+      color=color.new(color.lime, 10),
+      textcolor=color.black,
+      style=label.style_label_up,
+      size=size.small)
+
+if showLabels and shortSignal
+    label.new(bar_index, high,
+      '🔴 SHORT\nEntry: ' + str.tostring(close, '#.##') +
+      '\nSL: '    + str.tostring(shortSL, '#.##') +
+      '\nTP: '    + str.tostring(shortTP, '#.##') +
+      '\nRSI: '   + str.tostring(rsi, '#.#') +
+      '\nVol: x'  + str.tostring(volume/volEma, '#.##'),
+      color=color.new(color.red, 10),
+      textcolor=color.white,
+      style=label.style_label_down,
+      size=size.small)
+
+// Fondo de color según tendencia macro
+bgcolor(aboveEma200 ? color.new(color.green, 95) : color.new(color.red, 95), title='Tendencia macro')
+
+// ── Señal numérica para el bot (visible en Data Window) ─────────────
+signal = longSignal ? 1 : shortSignal ? -1 : 0
+plot(signal,   'Signal',  display=display.data_window)
+plot(rsi,      'RSI',     display=display.data_window)
+plot(atrVal,   'ATR',     display=display.data_window)
+plot(longSL,   'Long_SL', display=display.data_window)
+plot(longTP,   'Long_TP', display=display.data_window)
+plot(shortSL,  'Short_SL',display=display.data_window)
+plot(shortTP,  'Short_TP',display=display.data_window)
+
+// ── Alertas para el Bot ──────────────────────────────────────────────
+// Usando placeholders de TradingView (const string requerido por alertcondition en v6)
+alertcondition(longSignal, 'BOT: LONG Signal',
+  '{"side":"LONG","symbol":"{{ticker}}","price":{{close}},"sl":{{plot("Long_SL")}},"tp":{{plot("Long_TP")}},"rsi":{{plot("RSI")}},"tf":"{{interval}}","time":"{{timenow}}"}')
+
+alertcondition(shortSignal, 'BOT: SHORT Signal',
+  '{"side":"SHORT","symbol":"{{ticker}}","price":{{close}},"sl":{{plot("Short_SL")}},"tp":{{plot("Short_TP")}},"rsi":{{plot("RSI")}},"tf":"{{interval}}","time":"{{timenow}}"}')
+
+alertcondition(longSignal or shortSignal, 'BOT: Any Signal',
+  '{"symbol":"{{ticker}}","price":{{close}},"tf":"{{interval}}","time":"{{timenow}}"}')

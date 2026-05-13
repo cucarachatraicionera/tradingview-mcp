@@ -1,0 +1,331 @@
+//@version=6
+// ═══════════════════════════════════════════════════════════════════════════╗
+// ║  Neural Matrix Pro v1                                                    ║
+// ║  Estrategia Multi-Factor con Confianza Adaptativa                        ║
+// ║                                                                          ║
+// ║  Philosophy:                                                             ║
+// ║  Ningún indicador individual es confiable. La convergencia de múltiples  ║
+// ║  factores independientes → señal de alta probabilidad.                   ║
+// ║                                                                          ║
+// ║  Factores (ponderados por régimen de mercado):                           ║
+// ║  1. Estructura de Tendencia (EMA20/50/200 + pendiente)                   ║
+// ║  2. Régimen de Volatilidad (ATR percentil + ADX + Choppiness)           ║
+// ║  3. SuperTrend Adaptativo (factor dinámico según volatilidad)            ║
+// ║  4. Momentum + Divergencia (RSI + pendiente RSI + MACD)                 ║
+// ║  5. Volumen Inteligente (ratio + tendencia + perfil)                    ║
+// ║  6. Niveles Estructurales (swing highs/lows + VWAP)                     ║
+// ║                                                                          ║
+// ║  Timeframes: 30m / 1h / 2h / 4h (ajuste automático de parámetros)       ║
+// ║  Assets: Crypto, Commodities, Forex (cualquier mercado con tendencia)   ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+indicator('Neural Matrix Pro [Bot]', overlay=true, max_labels_count=500)
+
+// ───────────────────────────────────────────────────────────────────────────
+//  INPUTS
+// ───────────────────────────────────────────────────────────────────────────
+
+// ── Tendencia ──
+grp1 = 'Trend Structure'
+emaFastLen  = input.int(20,  'EMA Fast',     group=grp1)
+emaMedLen   = input.int(50,  'EMA Medium',   group=grp1)
+emaSlowLen  = input.int(200, 'EMA Slow',     group=grp1)
+
+// ── SuperTrend ──
+grp2 = 'SuperTrend'
+stAtrLen    = input.int(10,  'ST ATR Length',      group=grp2)
+stBaseF     = input.float(2.5, 'ST Base Factor',   group=grp2, step=0.1)
+stAdaptive  = input.bool(true, 'ST Factor Adaptativo (recomendado)', group=grp2)
+
+// ── Momentum ──
+grp3 = 'Momentum'
+rsiLen      = input.int(14,  'RSI Length',  group=grp3)
+rsiSlopeLen = input.int(5,   'RSI Slope Length', group=grp3)
+macdFast    = input.int(12,  'MACD Fast',   group=grp3)
+macdSlow    = input.int(26,  'MACD Slow',   group=grp3)
+macdSig     = input.int(9,   'MACD Signal', group=grp3)
+
+// ── Volumen ──
+grp4 = 'Volume'
+volMALen    = input.int(20,  'Volume MA Length', group=grp4)
+volRatioMin = input.float(1.15, 'Volumen Mínimo Ratio', group=grp4, step=0.05)
+
+// ── Riesgo ──
+grp5 = 'Risk'
+atrSLMult   = input.float(1.5, 'ATR SL Multiplier',  group=grp5, step=0.1)
+atrTPMult   = input.float(2.8, 'ATR TP Multiplier',  group=grp5, step=0.1)
+riskPerATR  = input.int(14,    'ATR Period',         group=grp5)
+
+// ── Confianza ──
+grp6 = 'Confidence Filter'
+confThresh  = input.int(65, 'Confianza Mínima (0-100)', group=grp6, minval=0, maxval=100)
+showDebug   = input.bool(false, 'Mostrar Debug en Chart', group=grp6)
+
+// ── Visual ──
+grp7 = 'Visual'
+showLabels  = input.bool(true, 'Mostrar Etiquetas', group=grp7)
+
+// ───────────────────────────────────────────────────────────────────────────
+//  CÁLCULOS BASE
+// ───────────────────────────────────────────────────────────────────────────
+
+// EMAs
+emaFast = ta.ema(close, emaFastLen)
+emaMed  = ta.ema(close, emaMedLen)
+emaSlow = ta.ema(close, emaSlowLen)
+
+// EMA Slope (momentum de tendencia)
+emaFastSlope = ta.linreg(emaFast, 5, 0) - ta.linreg(emaFast, 5, 1)
+
+// ATR y Volatilidad
+atrVal  = ta.atr(riskPerATR)
+atrPct  = (atrVal / close) * 100
+atrPercentile = ta.percentile_linear_interpolation(atrVal, 50, 100)
+
+// ADX
+[diPlus, diMinus, adxVal] = ta.dmi(14, 14)
+
+// Choppiness Index (mercado en rango?)
+highestHC = ta.highest(high, 14)
+lowestLC  = ta.lowest(low, 14)
+chopSum   = math.sum(ta.atr(1), 14)
+chopRange = highestHC - lowestLC
+chopRatio = chopRange > 0 ? chopSum / chopRange : 0
+chopIndex = 100 * math.log10(chopRatio) / math.log10(14)
+
+// ───────────────────────────────────────────────────────────────────────────
+//  RÉGIMEN DE MERCADO
+// ───────────────────────────────────────────────────────────────────────────
+
+// 0-100: 0=lateral extremo, 100=trending extremo
+regimeScore = math.max(0, math.min(100,
+  (adxVal > 25 ? 40 : adxVal > 20 ? 20 : 0) +
+  (chopIndex < 38.2 ? 30 : chopIndex < 50 ? 15 : 0) +
+  (atrPercentile > 60 ? 30 : atrPercentile > 30 ? 15 : 0)
+))
+
+isTrending  = regimeScore > 50
+isVolatile = atrPercentile > 70
+isSqueeze  = atrPercentile < 20 and chopIndex > 55
+
+// En mercados laterales, NO operamos
+noTradeZone = chopIndex > 55 and adxVal < 20
+
+// ───────────────────────────────────────────────────────────────────────────
+//  SUPER TREND ADAPTATIVO
+// ───────────────────────────────────────────────────────────────────────────
+
+// Factor adaptativo: más ancho en alta volatilidad, más estrecho en baja
+adaptiveFactor = math.max(1.5, math.min(5.0,
+  stAdaptive
+    ? stBaseF + (atrPercentile > 70 ? 1.5 : atrPercentile > 40 ? 0.5 : -0.5)
+    : stBaseF
+))
+
+[stLine, stDir] = ta.supertrend(adaptiveFactor, stAtrLen)
+stBull = stDir < 0
+stBear = stDir > 0
+
+// Cambios de dirección
+stFlipBull = ta.crossunder(stDir, 0)
+stFlipBear = ta.crossover(stDir, 0)
+
+// ───────────────────────────────────────────────────────────────────────────
+//  MOMENTUM COMPUESTO
+// ───────────────────────────────────────────────────────────────────────────
+
+// RSI
+rsi     = ta.rsi(close, rsiLen)
+rsiSlope = ta.linreg(rsi, rsiSlopeLen, 0) - ta.linreg(rsi, rsiSlopeLen, 1)
+
+// MACD
+[macdLine, macdSigLine, macdHist] = ta.macd(close, macdFast, macdSlow, macdSig)
+macdBull = macdLine > macdSigLine and macdHist > 0
+macdBear = macdLine < macdSigLine and macdHist < 0
+
+// Momentum Score (-100 a 100)
+momScore = 
+  (rsi > 50 ? (rsi > 65 ? 20 : 10) : (rsi < 35 ? -20 : -10)) +
+  (rsiSlope > 0 ? 15 : -15) +
+  (macdBull ? 20 : macdBear ? -20 : 0)
+
+// ───────────────────────────────────────────────────────────────────────────
+//  VOLUMEN INTELIGENTE
+// ───────────────────────────────────────────────────────────────────────────
+
+volMA    = ta.sma(volume, volMALen)
+volRatio = volume / volMA
+volTrend = ta.linreg(volume, 10, 0) - ta.linreg(volume, 10, 1)
+
+// Volume Score (-50 a 50)
+volScoreInt = 
+  (volRatio > volRatioMin ? 20 : volRatio > 1.0 ? 10 : -10) +
+  (volTrend > 0 ? 10 : -5) +
+  (volume == ta.highest(volume, 5) ? 20 : 0)
+
+// ───────────────────────────────────────────────────────────────────────────
+//  ESTRUCTURA (VWAP + Swing Levels)
+// ───────────────────────────────────────────────────────────────────────────
+
+vwapVal = ta.vwap(hlc3)
+vwapDev = (close - vwapVal) / vwapVal * 100  // % deviation from VWAP
+
+// Swing highs/lows (5 períodos)
+swingHigh = ta.pivothigh(high, 3, 3)
+swingLow  = ta.pivotlow(low, 3, 3)
+
+// Últimos niveles de soporte/resistencia detectados
+var float lastResistance = na
+var float lastSupport = na
+if not na(swingHigh)
+    lastResistance := swingHigh
+if not na(swingLow)
+    lastSupport := swingLow
+
+// Distance to nearest swing (%)
+resDist = na(lastResistance) ? 999 : (lastResistance - close) / close * 100
+supDist = na(lastSupport) ? 999 : (close - lastSupport) / close * 100
+
+// VWAP Score
+vwapScoreInt = close > vwapVal ? (vwapDev > 0.5 ? 15 : 10) : (vwapDev < -0.5 ? -15 : -10)
+
+// ───────────────────────────────────────────────────────────────────────────
+//  CONFIANZA COMPUESTA (0-100)
+// ───────────────────────────────────────────────────────────────────────────
+
+// Tendencia Score (-100 a 100)
+trendScoreForConf = 
+  (close > emaFast ? (close > emaMed ? (close > emaSlow ? 30 : 20) : 10) : (close < emaSlow ? -30 : -10)) +
+  (emaFastSlope > 0 ? 15 : -15)
+
+// Bull confidence (0-100)
+bullConf = math.max(0, math.min(100,
+  50 +
+  (stBull ? 20 : 0) +
+  (trendScoreForConf > 0 ? trendScoreForConf * 0.3 : 0) +
+  (momScore > 0 ? momScore * 0.3 : 0) +
+  (volScoreInt > 0 ? volScoreInt * 0.2 : 0) +
+  (vwapScoreInt > 0 ? vwapScoreInt * 0.3 : 0) +
+  (regimeScore * 0.1)
+))
+
+// Bear confidence (0-100)
+bearConf = math.max(0, math.min(100,
+  50 +
+  (stBear ? 20 : 0) +
+  (trendScoreForConf < 0 ? math.abs(trendScoreForConf) * 0.3 : 0) +
+  (momScore < 0 ? math.abs(momScore) * 0.3 : 0) +
+  (volScoreInt > 0 ? volScoreInt * 0.2 : 0) +
+  (vwapScoreInt < 0 ? math.abs(vwapScoreInt) * 0.3 : 0) +
+  (regimeScore * 0.1)
+))
+
+// ───────────────────────────────────────────────────────────────────────────
+//  CONDICIONES DE ENTRADA
+// ───────────────────────────────────────────────────────────────────────────
+
+longSignal = (stFlipBull or (stBull and ta.crossover(close, emaFast)))
+  and bullConf >= confThresh
+  and not noTradeZone
+  and rsi < 75
+  and volRatio >= volRatioMin
+  and close > emaSlow  // Macro-filter
+
+shortSignal = (stFlipBear or (stBear and ta.crossunder(close, emaFast)))
+  and bearConf >= confThresh
+  and not noTradeZone
+  and rsi > 25
+  and volRatio >= volRatioMin
+  and close < emaSlow  // Macro-filter
+
+// ───────────────────────────────────────────────────────────────────────────
+//  SL / TP DINÁMICOS (estructura + ATR)
+// ───────────────────────────────────────────────────────────────────────────
+
+longSL  = na(lastSupport) ? close - atrVal * atrSLMult * 1.2 : math.min(lastSupport, close - atrVal * atrSLMult)
+longTP  = na(lastResistance) ? close + atrVal * atrTPMult : math.max(lastResistance, close + atrVal * atrTPMult)
+shortSL = na(lastResistance) ? close + atrVal * atrSLMult * 1.2 : math.max(lastResistance, close + atrVal * atrSLMult)
+shortTP = na(lastSupport) ? close - atrVal * atrTPMult : math.min(lastSupport, close - atrVal * atrTPMult)
+
+// Normalizar: SL nunca puede estar peor que X ATRs
+longSL  := math.max(longSL, close - atrVal * atrSLMult * 1.5)
+shortSL := math.min(shortSL, close + atrVal * atrSLMult * 1.5)
+
+// ───────────────────────────────────────────────────────────────────────────
+//  SEÑAL NUMÉRICA + DATA WINDOW
+// ───────────────────────────────────────────────────────────────────────────
+
+signal = longSignal ? 1 : shortSignal ? -1 : 0
+confidence = longSignal ? bullConf : shortSignal ? bearConf : 0
+
+plot(signal,       'Signal',      display=display.data_window)
+plot(rsi,          'RSI',         display=display.data_window)
+plot(atrVal,       'ATR',         display=display.data_window)
+plot(atrPct,       'ATR%',        display=display.data_window)
+plot(regimeScore,  'Regime',      display=display.data_window)
+plot(confidence,   'Confidence',  display=display.data_window)
+plot(volRatio,     'VolRatio',    display=display.data_window)
+plot(adxVal,       'ADX',         display=display.data_window)
+plot(longSL,       'Long_SL',     display=display.data_window)
+plot(longTP,       'Long_TP',     display=display.data_window)
+plot(shortSL,      'Short_SL',    display=display.data_window)
+plot(shortTP,      'Short_TP',    display=display.data_window)
+plot(chopIndex,    'Choppiness',  display=display.data_window)
+
+// ───────────────────────────────────────────────────────────────────────────
+//  VISUAL
+// ───────────────────────────────────────────────────────────────────────────
+
+// EMAs
+plot(emaFast, 'EMA 20', color.new(#2196F3, 20), linewidth=2)
+plot(emaMed,  'EMA 50', color.new(#FF9800, 30), linewidth=1)
+plot(emaSlow, 'EMA 200', color.new(#607D8B, 40), linewidth=2)
+
+// SuperTrend
+plot(stLine, 'SuperTrend', stBull ? color.new(#4CAF50, 30) : color.new(#F44336, 30), linewidth=2)
+
+// VWAP
+plot(vwapVal, 'VWAP', color.new(#E91E63, 40), linewidth=1)
+
+// Fondo según régimen
+bgcolor(noTradeZone ? color.new(#FF9800, 90) : na, title='No-Trade Zone')
+bgcolor(isVolatile ? color.new(#9C27B0, 90) : na, title='High Volatility')
+
+// Señales en chart
+plotshape(longSignal, style=shape.triangleup, location=location.belowbar,
+  color=color.new(#4CAF50, 0), size=size.normal, title='LONG')
+plotshape(shortSignal, style=shape.triangledown, location=location.abovebar,
+  color=color.new(#F44336, 0), size=size.normal, title='SHORT')
+
+// Debug
+plotchar(showDebug and noTradeZone, '', '⛔', location=location.top, color=color.orange, size=size.tiny)
+plotchar(showDebug and isVolatile, '', '⚡', location=location.top, color=color.purple, size=size.tiny)
+
+// Etiquetas SL/TP
+if showLabels and longSignal
+    label.new(bar_index, low,
+      '🟢 LONG [' + str.tostring(math.round(confidence)) + '%]\nEntry: ' + str.tostring(close, '#.##') +
+      '\nSL: ' + str.tostring(longSL, '#.##') +
+      '\nTP: ' + str.tostring(longTP, '#.##') +
+      '\nRSI: ' + str.tostring(rsi, '#.#') + ' | R: ' + str.tostring(math.round(regimeScore)),
+      color=color.new(#4CAF50, 10), textcolor=color.black,
+      style=label.style_label_up, size=size.small)
+
+if showLabels and shortSignal
+    label.new(bar_index, high,
+      '🔴 SHORT [' + str.tostring(math.round(confidence)) + '%]\nEntry: ' + str.tostring(close, '#.##') +
+      '\nSL: ' + str.tostring(shortSL, '#.##') +
+      '\nTP: ' + str.tostring(shortTP, '#.##') +
+      '\nRSI: ' + str.tostring(rsi, '#.#') + ' | R: ' + str.tostring(math.round(regimeScore)),
+      color=color.new(#F44336, 10), textcolor=color.white,
+      style=label.style_label_down, size=size.small)
+
+// ───────────────────────────────────────────────────────────────────────────
+//  ALERTAS BOT
+// ───────────────────────────────────────────────────────────────────────────
+
+alertcondition(longSignal, 'BOT: LONG Signal',
+  '{"side":"LONG","symbol":"{{ticker}}","price":{{close}},"sl":{{plot("Long_SL")}},"tp":{{plot("Long_TP")}},"rsi":{{plot("RSI")}},"confidence":{{plot("Confidence")}},"regime":{{plot("Regime")}},"tf":"{{interval}}","time":"{{timenow}}"}')
+
+alertcondition(shortSignal, 'BOT: SHORT Signal',
+  '{"side":"SHORT","symbol":"{{ticker}}","price":{{close}},"sl":{{plot("Short_SL")}},"tp":{{plot("Short_TP")}},"rsi":{{plot("RSI")}},"confidence":{{plot("Confidence")}},"regime":{{plot("Regime")}},"tf":"{{interval}}","time":"{{timenow}}"}')

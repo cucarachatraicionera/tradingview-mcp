@@ -5,3 +5,6 @@ temp_*
 *.log
 discovery-log.json
 *.deb
+.env
+data/
+config.json

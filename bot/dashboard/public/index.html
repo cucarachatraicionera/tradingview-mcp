@@ -138,6 +138,7 @@
 
   <script>
     let equityChart, pnlChart, winRateChart;
+    let initialized = false;
 
     function fmtTime(ts) {
       const d = new Date(ts);
@@ -156,19 +157,29 @@
 
     function renderSummary(stats) {
       const el = document.getElementById('summaryCards');
-      const cards = [
-        { label: 'Total Señales', value: stats.total, color: 'text-blue-400', icon: '📊' },
-        { label: 'Ganadas', value: stats.won, color: 'text-emerald-400', icon: '✅' },
-        { label: 'Perdidas', value: stats.lost, color: 'text-red-400', icon: '❌' },
-        { label: 'P&L Total', value: (stats.totalPnl > 0 ? '+' : '') + stats.totalPnl, color: stats.totalPnl >= 0 ? 'text-emerald-400' : 'text-red-400', icon: '💰' },
-      ];
-      el.innerHTML = cards.map(c => `
-        <div class="glass-card p-5 gradient-border animate-in text-center">
-          <div class="text-2xl mb-1">${c.icon}</div>
-          <div class="text-2xl font-bold ${c.color}">${c.value}</div>
-          <div class="text-xs text-gray-500 mt-1">${c.label}</div>
-        </div>
-      `).join('');
+      if (!initialized) {
+        const cards = [
+          { label: 'Total Señales', value: stats.total, color: 'text-blue-400', icon: '📊', key: 'total' },
+          { label: 'Ganadas', value: stats.won, color: 'text-emerald-400', icon: '✅', key: 'won' },
+          { label: 'Perdidas', value: stats.lost, color: 'text-red-400', icon: '❌', key: 'lost' },
+          { label: 'P&L Total', value: (stats.totalPnl > 0 ? '+' : '') + stats.totalPnl, color: stats.totalPnl >= 0 ? 'text-emerald-400' : 'text-red-400', icon: '💰', key: 'pnl' },
+        ];
+        el.innerHTML = cards.map(c => `
+          <div class="glass-card p-5 gradient-border text-center" data-key="${c.key}">
+            <div class="text-2xl mb-1">${c.icon}</div>
+            <div class="text-2xl font-bold ${c.color}" data-value="${c.key}">${c.value}</div>
+            <div class="text-xs text-gray-500 mt-1">${c.label}</div>
+          </div>
+        `).join('');
+      } else {
+        const cards = el.querySelectorAll('[data-value]');
+        const vals = [stats.total, stats.won, stats.lost, (stats.totalPnl > 0 ? '+' : '') + stats.totalPnl];
+        cards.forEach((el, i) => {
+          const cls = i === 3 ? (stats.totalPnl >= 0 ? 'text-emerald-400' : 'text-red-400') : 'text-blue-400';
+          el.className = 'text-2xl font-bold ' + cls;
+          el.textContent = vals[i];
+        });
+      }
     }
 
     function renderComboCards(stats) {
@@ -182,29 +193,47 @@
         const found = combos.find(x => x.symbol === c.symbol && x.tf === c.tf);
         return found || { symbol: c.symbol, tf: c.tf, total: 0, won: 0, lost: 0, pnl: 0 };
       });
-      el.innerHTML = merged.map(c => {
-        const pnl = Number(c.pnl);
-        const resolved = (c.won || 0) + (c.lost || 0);
-        const wr = resolved > 0 ? ((c.won / resolved) * 100).toFixed(0) : '—';
-        return `
-          <div class="glass-card p-5 gradient-border animate-in">
-            <div class="flex items-center justify-between mb-3">
-              <span class="font-bold text-lg">${c.symbol} <span class="text-sm font-normal text-gray-400">${c.tf}</span></span>
-              <span class="text-xs px-2 py-0.5 rounded-full ${pnl >= 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}">
-                ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}
-              </span>
+      if (!initialized) {
+        el.innerHTML = merged.map((c, i) => {
+          const pnl = Number(c.pnl);
+          const resolved = (c.won || 0) + (c.lost || 0);
+          const wr = resolved > 0 ? ((c.won / resolved) * 100).toFixed(0) : '—';
+          return `
+            <div class="glass-card p-5 gradient-border" data-combo="${i}">
+              <div class="flex items-center justify-between mb-3">
+                <span class="font-bold text-lg">${c.symbol} <span class="text-sm font-normal text-gray-400">${c.tf}</span></span>
+                <span class="text-xs px-2 py-0.5 rounded-full pnl-badge ${pnl >= 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}">
+                  ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}
+                </span>
+              </div>
+              <div class="grid grid-cols-3 gap-2 text-center text-xs">
+                <div><div class="text-lg font-semibold text-gray-200 total-val">${c.total}</div><div class="text-gray-500">Señales</div></div>
+                <div><div class="text-lg font-semibold text-emerald-400 won-val">${c.won || 0}</div><div class="text-gray-500">Ganadas</div></div>
+                <div><div class="text-lg font-semibold text-red-400 lost-val">${c.lost || 0}</div><div class="text-gray-500">Perdidas</div></div>
+              </div>
+              <div class="mt-3 pt-3 border-t border-white/5 text-center">
+                <span class="text-sm font-medium wr-label ${resolved > 0 ? 'text-blue-400' : 'text-gray-600'}">WR: ${wr}${resolved > 0 ? '%' : ''}</span>
+              </div>
             </div>
-            <div class="grid grid-cols-3 gap-2 text-center text-xs">
-              <div><div class="text-lg font-semibold text-gray-200">${c.total}</div><div class="text-gray-500">Señales</div></div>
-              <div><div class="text-lg font-semibold text-emerald-400">${c.won || 0}</div><div class="text-gray-500">Ganadas</div></div>
-              <div><div class="text-lg font-semibold text-red-400">${c.lost || 0}</div><div class="text-gray-500">Perdidas</div></div>
-            </div>
-            <div class="mt-3 pt-3 border-t border-white/5 text-center">
-              <span class="text-sm font-medium ${resolved > 0 ? 'text-blue-400' : 'text-gray-600'}">WR: ${wr}${resolved > 0 ? '%' : ''}</span>
-            </div>
-          </div>
-        `;
-      }).join('');
+          `;
+        }).join('');
+      } else {
+        merged.forEach((c, i) => {
+          const card = el.querySelector(`[data-combo="${i}"]`);
+          if (!card) return;
+          const pnl = Number(c.pnl);
+          const resolved = (c.won || 0) + (c.lost || 0);
+          const wr = resolved > 0 ? ((c.won / resolved) * 100).toFixed(0) : '—';
+          card.querySelector('.pnl-badge').textContent = (pnl >= 0 ? '+' : '') + pnl.toFixed(2);
+          card.querySelector('.pnl-badge').className = `text-xs px-2 py-0.5 rounded-full pnl-badge ${pnl >= 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`;
+          card.querySelector('.total-val').textContent = c.total;
+          card.querySelector('.won-val').textContent = c.won || 0;
+          card.querySelector('.lost-val').textContent = c.lost || 0;
+          const wrLabel = card.querySelector('.wr-label');
+          wrLabel.textContent = `WR: ${wr}${resolved > 0 ? '%' : ''}`;
+          wrLabel.className = `text-sm font-medium wr-label ${resolved > 0 ? 'text-blue-400' : 'text-gray-600'}`;
+        });
+      }
     }
 
     function renderSignalsTable(signals) {
@@ -349,7 +378,10 @@
         renderSignalsTable(signals);
         updateCharts(stats);
 
-        animateCards();
+        if (!initialized) {
+          initialized = true;
+          animateCards();
+        }
         document.getElementById('lastUpdate').textContent = 'Última actualización: ' + new Date().toLocaleTimeString('es-MX');
       } catch(e) {
         document.getElementById('lastUpdate').textContent = 'Error al cargar datos';

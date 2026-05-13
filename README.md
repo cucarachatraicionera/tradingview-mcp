@@ -1,6 +1,6 @@
 # TradingView MCP Bridge
 
-Personal AI assistant for your TradingView Desktop charts. Connects Claude Code to your locally running TradingView app via Chrome DevTools Protocol for AI-assisted chart analysis, Pine Script development, and workflow automation.
+AI-powered interface for your TradingView Desktop charts. Connects Antigravity to your locally running TradingView app via Chrome DevTools Protocol for AI-assisted chart analysis, Pine Script development, and workflow automation.
 
 > [!WARNING]
 > **This tool is not affiliated with, endorsed by, or associated with TradingView Inc.** It interacts with your locally running TradingView Desktop application via Chrome DevTools Protocol. Review the [Disclaimer](#disclaimer) before use.
@@ -49,7 +49,7 @@ See [RESEARCH.md](RESEARCH.md) for open questions, findings, and related work.
 
 - **TradingView Desktop app** (paid subscription required for real-time data)
 - **Node.js 18+**
-- **Claude Code** with MCP support (for MCP tools) or any terminal (for CLI)
+- **Antigravity** with MCP support (for MCP tools) or any terminal (for CLI)
 - **macOS, Windows, or Linux**
 
 ## What It Does
@@ -68,11 +68,11 @@ Gives your AI assistant eyes and hands on your own chart:
 - **CLI access** — every MCP tool is also a `tv` CLI command, pipe-friendly with JSON output
 - **Launch TradingView** — auto-detect and launch with debug mode from any platform
 
-## Install with Claude Code
+## Install with Antigravity
 
-Paste this into Claude Code and it will handle the rest:
+Paste this into Antigravity and it will handle the rest:
 
-> Install the TradingView MCP server. Clone https://github.com/tradesdontlie/tradingview-mcp.git, run npm install, add it to my MCP config at ~/.claude/.mcp.json, and launch TradingView with the debug port. Then verify the connection with tv_health_check.
+> Install the TradingView MCP server. Clone the repo, run npm install, add it to my MCP config, and launch TradingView with the debug port. Then verify the connection with tv_health_check.
 
 Or follow the manual steps below.
 
@@ -81,7 +81,7 @@ Or follow the manual steps below.
 ### 1. Install
 
 ```bash
-git clone https://github.com/tradesdontlie/tradingview-mcp.git
+git clone https://github.com/cucarachatraicionera/tradingview-mcp.git
 cd tradingview-mcp
 npm install
 ```
@@ -113,9 +113,9 @@ scripts\launch_tv_debug.bat
 **Or use the MCP tool** (auto-detects your install):
 > "Use tv_launch to start TradingView in debug mode"
 
-### 3. Add to Claude Code
+### 3. Add to Antigravity
 
-Add to your Claude Code MCP config (`~/.claude/.mcp.json` or project `.mcp.json`):
+Add to your Antigravity MCP config:
 
 ```json
 {
@@ -132,7 +132,7 @@ Replace `/path/to/tradingview-mcp` with your actual path.
 
 ### 4. Verify
 
-Ask Claude: *"Use tv_health_check to verify TradingView is connected"*
+Ask your AI assistant: *"Use tv_health_check to verify TradingView is connected"*
 
 ## CLI
 
@@ -198,11 +198,11 @@ tv stream tables --filter Profiler       # table data monitoring
 tv stream all                            # all panes at once (multi-symbol)
 ```
 
-## How Claude Knows Which Tool to Use
+## How the AI Knows Which Tool to Use
 
-Claude reads [`CLAUDE.md`](CLAUDE.md) automatically when working in this project. It contains a complete decision tree:
+The AI reads [`ANTIGRAVITY.md`](ANTIGRAVITY.md) when working in this project. It contains a complete decision tree:
 
-| You say... | Claude uses... |
+| You say... | The AI uses... |
 |------------|---------------|
 | "What's on my chart?" | `chart_get_state` → `data_get_study_values` → `quote_get` |
 | "What levels are showing?" | `data_get_pine_lines` → `data_get_pine_labels` |
@@ -348,7 +348,7 @@ npm test
 ## Architecture
 
 ```
-Claude Code  ←→  MCP Server (stdio)  ←→  CDP (port 9222)  ←→  TradingView Desktop (Electron)
+Antigravity  ←→  MCP Server (stdio)  ←→  CDP (port 9222)  ←→  TradingView Desktop (Electron)
 ```
 
 - **Transport**: MCP over stdio (78 tools) + CLI (`tv` command, 30 commands with 66 subcommands)
@@ -507,9 +507,8 @@ Generates synthetic signals for all 6 combos to test the dashboard and Telegram 
 
 This project is not affiliated with, endorsed by, or associated with:
 - **TradingView Inc.** — TradingView is a trademark of TradingView Inc.
-- **Anthropic** — Claude and Claude Code are trademarks of Anthropic, PBC.
 
-This tool is an independent MCP server that connects to Claude Code via the standard MCP protocol. It does not contain or modify any Anthropic software.
+This tool is an independent MCP server that connects to your editor via the standard MCP protocol.
 
 ## Disclaimer
 

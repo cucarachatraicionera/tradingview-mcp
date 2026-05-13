@@ -86,7 +86,7 @@ registerPaneTools(server);
 registerTabTools(server);
 
 // Startup notice (stderr so it doesn't interfere with MCP stdio protocol)
-process.stderr.write('⚠  tradingview-mcp  |  Unofficial tool. Not affiliated with TradingView Inc. or Anthropic.\n');
+process.stderr.write('⚠  tradingview-mcp  |  Unofficial tool. Not affiliated with TradingView Inc.\n');
 process.stderr.write('   Ensure your usage complies with TradingView\'s Terms of Use.\n\n');
 
 // Start stdio transport

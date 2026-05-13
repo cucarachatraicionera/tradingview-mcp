@@ -1,0 +1,50 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Dependencies
+node_modules/
+
+# Database (runtime data, not packaged)
+data/
+
+# Environment
+.env
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Temp
+temp_*
+tmp/
+
+# Screenshots (host-specific)
+screenshots/
+
+# Documentation (not needed at runtime)
+*.md
+RESEARCH.md
+SETUP_GUIDE.md
+SECURITY.md
+CONTRIBUTING.md
+CLAUDE.md
+
+# Tests (not needed at runtime)
+tests/
+
+# Dev/exploration scripts
+scripts/current.pine
+discovery-log.json
